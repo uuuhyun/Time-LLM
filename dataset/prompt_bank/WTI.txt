@@ -1,0 +1,5 @@
+The West Texas Intermediate (WTI) crude oil price index is a key benchmark in global oil markets, influencing energy policies and financial markets worldwide. This dataset consists of 5 years of daily trading data, excluding weekends and market holidays. Each data point represents the WTI crude oil closing price along with potential auxiliary financial indicators such as trading volume and market sentiment scores.
+
+To analyze long-term trends and improve forecasting accuracy, the dataset is structured with a 4-year training period and a 1-year forecasting horizon. The goal is to predict the future movement of WTI crude oil prices based on historical price patterns and relevant market dynamics.
+
+The dataset is divided into training (4 years), validation (10% of total data), and testing (1 year) to ensure robust model evaluation. Given the complexity of commodity price movements, this dataset can support the development of advanced time-series forecasting models to anticipate fluctuations in crude oil markets.
