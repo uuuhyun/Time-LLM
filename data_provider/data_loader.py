@@ -212,9 +212,9 @@ class Dataset_Custom(Dataset):
                  target='OT', scale=True, timeenc=0, freq='d', percent=100,
                  seasonal_patterns=None):
         if size == None:
-            self.seq_len = 251 * 4
-            self.label_len = 30
-            self.pred_len = 251
+            self.seq_len = 5 * 4
+            self.label_len = 5
+            self.pred_len = 5
         else:
             self.seq_len = size[0]
             self.label_len = size[1]
