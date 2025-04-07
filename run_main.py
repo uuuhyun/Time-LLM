@@ -129,6 +129,8 @@ for ii in range(args.itr):
     vali_data, vali_loader = data_provider(args, 'val')
     test_data, test_loader = data_provider(args, 'test')
 
+    args.content = load_content(args)
+
     if args.model == 'Autoformer':
         model = Autoformer.Model(args).float()
     elif args.model == 'DLinear':
@@ -138,7 +140,7 @@ for ii in range(args.itr):
 
     path = os.path.join(args.checkpoints,
                         setting + '-' + args.model_comment)  # unique checkpoint saving path
-    args.content = load_content(args)
+
     if not os.path.exists(path) and accelerator.is_local_main_process:
         os.makedirs(path)
 
