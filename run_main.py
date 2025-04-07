@@ -13,6 +13,8 @@ import time
 import random
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+import pandas as pd
 
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
@@ -268,3 +270,44 @@ if accelerator.is_local_main_process:
     path = './checkpoints'  # unique checkpoint saving path
     del_files(path)  # delete checkpoint files
     accelerator.print('success delete checkpoints')
+  
+    def evaluate_and_plot(model, data_loader, args):
+        model.eval()
+        preds, trues = [], []
+        with torch.no_grad():
+            for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
+                batch_x = batch_x.float().to(accelerator.device)
+                batch_y = batch_y.float().to(accelerator.device)
+                batch_x_mark = batch_x_mark.float().to(accelerator.device)
+                batch_y_mark = batch_y_mark.float().to(accelerator.device)
+
+                dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float().to(accelerator.device)
+                dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1)
+
+                outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]
+
+                f_dim = -1 if args.features == 'MS' else 0
+                preds.append(outputs[:, -args.pred_len:, f_dim:].cpu().numpy())
+                trues.append(batch_y[:, -args.pred_len:, f_dim:].cpu().numpy())
+
+        preds = np.concatenate(preds, axis=0)
+        trues = np.concatenate(trues, axis=0)
+
+        plt.figure(figsize=(10, 4))
+        plt.plot(trues[0].squeeze(), label='Ground Truth')
+        plt.plot(preds[0].squeeze(), label='Prediction')
+        plt.legend()
+        plt.title("Prediction vs Ground Truth")
+        plt.grid(True)
+        plt.savefig('prediction_plot.png')
+
+        df = pd.DataFrame({
+            'GroundTruth': trues[0].squeeze(),
+            'Prediction': preds[0].squeeze()
+        })
+        df.to_csv('pred_vs_true.csv', index=False)
+        print("Saved prediction_plot.png and pred_vs_true.csv")
+
+    evaluate_and_plot(model, test_loader, args)
