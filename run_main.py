@@ -270,10 +270,11 @@ if accelerator.is_local_main_process:
     path = './checkpoints'  # unique checkpoint saving path
     del_files(path)  # delete checkpoint files
     accelerator.print('success delete checkpoints')
-  
-    def evaluate_and_plot(model, data_loader, args):
+
+    def evaluate_and_plot(model, data_loader, data_set, args):
         model.eval()
         preds, trues = [], []
+
         with torch.no_grad():
             for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
                 batch_x = batch_x.float().to(accelerator.device)
@@ -295,19 +296,30 @@ if accelerator.is_local_main_process:
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
 
+        # ✅ inverse transform
+        preds = data_set.inverse_transform(preds.reshape(-1, preds.shape[-1])).reshape(preds.shape)
+        trues = data_set.inverse_transform(trues.reshape(-1, trues.shape[-1])).reshape(trues.shape)
+
+        # ✅ 시각화 및 저장
         plt.figure(figsize=(10, 4))
         plt.plot(trues[0].squeeze(), label='Ground Truth')
         plt.plot(preds[0].squeeze(), label='Prediction')
         plt.legend()
         plt.title("Prediction vs Ground Truth")
         plt.grid(True)
+        plt.tight_layout()
         plt.savefig('prediction_plot.png')
+        print("📈 Saved prediction_plot.png")
 
+        # ✅ CSV 저장 및 출력
         df = pd.DataFrame({
             'GroundTruth': trues[0].squeeze(),
             'Prediction': preds[0].squeeze()
         })
         df.to_csv('pred_vs_true.csv', index=False)
-        print("Saved prediction_plot.png and pred_vs_true.csv")
+        print("📁 Saved pred_vs_true.csv")
+        print("\\n===== Prediction vs Ground Truth (First Sample) =====")
+        print(df.to_string(index=False))
 
-    evaluate_and_plot(model, test_loader, args)
+    # 👇 반드시 test_data도 함께 전달
+    evaluate_and_plot(model, test_loader, test_data, args)
