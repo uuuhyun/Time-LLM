@@ -274,54 +274,72 @@ if accelerator.is_local_main_process:
     accelerator.print('success delete checkpoints')
 
     def evaluate_and_plot(model, data_loader, data_set, args):
-        model.eval()
-        preds, trues = [], []
+      model.eval()
+      preds, trues, inputs = [], [], []
+  
+      with torch.no_grad():
+          for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
+              batch_x = batch_x.float().to(accelerator.device)
+              batch_y = batch_y.float().to(accelerator.device)
+              batch_x_mark = batch_x_mark.float().to(accelerator.device)
+              batch_y_mark = batch_y_mark.float().to(accelerator.device)
+  
+              dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float().to(accelerator.device)
+              dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1)
+  
+              outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+              if isinstance(outputs, tuple):
+                  outputs = outputs[0]
+  
+              f_dim = -1 if args.features == 'MS' else 0
+              preds.append(outputs[:, -args.pred_len:, f_dim:].cpu().numpy())
+              trues.append(batch_y[:, -args.pred_len:, f_dim:].cpu().numpy())
+              inputs.append(batch_x[:, -args.seq_len:, f_dim:].cpu().numpy())
+  
+      preds = np.concatenate(preds, axis=0)
+      trues = np.concatenate(trues, axis=0)
+      inputs = np.concatenate(inputs, axis=0)
+  
+      # 역변환
+      preds = data_set.inverse_transform(preds.reshape(-1, preds.shape[-1])).reshape(preds.shape)
+      trues = data_set.inverse_transform(trues.reshape(-1, trues.shape[-1])).reshape(trues.shape)
+      inputs = data_set.inverse_transform(inputs.reshape(-1, inputs.shape[-1])).reshape(inputs.shape)
+  
+      # 🎯 첫 번째 시계열만 시각화 및 출력
+      input_seq = inputs[0].squeeze()
+      true_seq = trues[0].squeeze()
+      pred_seq = preds[0].squeeze()
+  
+      print("\n===== 📊 입력 시퀀스 (Input Sequence) =====")
+      print(input_seq)
+  
+      print("\n===== ✅ 실제값 vs 예측값 (Ground Truth vs Prediction) =====")
+      df = pd.DataFrame({
+          'GroundTruth': true_seq,
+          'Prediction': pred_seq
+      })
+      print(df.to_string(index=False))
+  
+      # ✅ 자연스럽게 연결된 시계열로 시각화
+      full_truth = np.concatenate([input_seq, true_seq])
+      full_pred = np.concatenate([input_seq, pred_seq])
+      x = np.arange(len(full_truth))
+      x_input = np.arange(len(input_seq))
+  
+      plt.figure(figsize=(12, 4))
+      plt.plot(x_input, input_seq, label='input', color='blue', linestyle='dotted')
+      plt.plot(x, full_truth, label='ground truth', color='orange')
+      plt.plot(x, full_pred, label='prediction', color='green', linestyle='--')
+      plt.legend()
+      plt.grid()
+      plt.title("Input → Prediction / Ground Truth (Continuous Line)")
+      plt.tight_layout()
+      plt.savefig("prediction_plot.png")
+      print("📁 Saved prediction_plot.png")
 
-        with torch.no_grad():
-            for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
-                batch_x = batch_x.float().to(accelerator.device)
-                batch_y = batch_y.float().to(accelerator.device)
-                batch_x_mark = batch_x_mark.float().to(accelerator.device)
-                batch_y_mark = batch_y_mark.float().to(accelerator.device)
-
-                dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float().to(accelerator.device)
-                dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1)
-
-                outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                if isinstance(outputs, tuple):
-                    outputs = outputs[0]
-
-                f_dim = -1 if args.features == 'MS' else 0
-                preds.append(outputs[:, -args.pred_len:, f_dim:].cpu().numpy())
-                trues.append(batch_y[:, -args.pred_len:, f_dim:].cpu().numpy())
-
-        preds = np.concatenate(preds, axis=0)
-        trues = np.concatenate(trues, axis=0)
-
-        # ✅ inverse transform
-        preds = data_set.inverse_transform(preds.reshape(-1, preds.shape[-1])).reshape(preds.shape)
-        trues = data_set.inverse_transform(trues.reshape(-1, trues.shape[-1])).reshape(trues.shape)
-
-        # ✅ 시각화 및 저장
-        plt.figure(figsize=(10, 4))
-        plt.plot(trues[0].squeeze(), label='Ground Truth')
-        plt.plot(preds[0].squeeze(), label='Prediction')
-        plt.legend()
-        plt.title("Prediction vs Ground Truth")
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig('prediction_plot.png')
-        print("📈 Saved prediction_plot.png")
-
-        # ✅ CSV 저장 및 출력
-        df = pd.DataFrame({
-            'GroundTruth': trues[0].squeeze(),
-            'Prediction': preds[0].squeeze()
-        })
-        df.to_csv('pred_vs_true.csv', index=False)
-        print("📁 Saved pred_vs_true.csv")
-        print("\\n===== Prediction vs Ground Truth (First Sample) =====")
-        print(df.to_string(index=False))
 
     # 👇 반드시 test_data도 함께 전달
     evaluate_and_plot(model, test_loader, test_data, args)
+
+from IPython.display import Image, display
+display(Image(filename='prediction_plot.png'))
