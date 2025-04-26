@@ -15,6 +15,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
+import datetime
 
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
@@ -334,12 +335,14 @@ if accelerator.is_local_main_process:
       plt.grid()
       plt.title("Input → Prediction / Ground Truth (Continuous Line)")
       plt.tight_layout()
-      plt.savefig("prediction_plot.png")
-      print("📁 Saved prediction_plot.png")
-
+      now = datetime.datetime.now()
+      timestamp = now.strftime("%Y%m%d_%H%M%S")
+      save_path = f"forecast_result_{timestamp}.png"
+      plt.savefig(save_path)
+      print(f"Saved at {save_path}")
 
     # 👇 반드시 test_data도 함께 전달
     evaluate_and_plot(model, test_loader, test_data, args)
 
 from IPython.display import Image, display
-display(Image(filename='prediction_plot.png'))
+display(Image(filename=save_path))
