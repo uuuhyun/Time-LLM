@@ -212,7 +212,7 @@ class Dataset_Custom(Dataset):
                  target='OT', scale=True, timeenc=0, freq='d', percent=100,
                  seasonal_patterns=None):
         if size == None:
-            self.seq_len = 5 * 4
+            self.seq_len = 25
             self.label_len = 5
             self.pred_len = 5
         else:
@@ -235,8 +235,8 @@ class Dataset_Custom(Dataset):
         self.data_path = data_path
         self.__read_data__()
 
-        self.enc_in = self.data_x.shape[-1]
-        self.tot_len = len(self.data_x) - self.seq_len - self.pred_len + 1
+        # self.enc_in = self.data_x.shape[-1]
+        # self.tot_len = len(self.data_x) - self.seq_len - self.pred_len + 1
 
     def __read_data__(self):
         self.scaler = StandardScaler()
@@ -249,14 +249,19 @@ class Dataset_Custom(Dataset):
         cols = list(df_raw.columns)
         cols.remove(self.target)
         cols.remove('date')
+        if 'interpolated_flag' in cols:
+            cols.remove('interpolated_flag')
+        self.flag_exist = 'interpolated_flag' in df_raw.columns
+        
         df_raw = df_raw[['date'] + cols + [self.target]]
+        if self.flag_exist:
+            self.interpolated_flags = df_raw['interpolated_flag'].values
+            
         num_train = int(len(df_raw) * 0.7)
         num_test = int(len(df_raw) * 0.2)
         num_vali = len(df_raw) - num_train - num_test
-        border1s = [0, num_train - self.seq_len, len(df_raw) - num_test - self.seq_len]
-        border2s = [num_train, num_train + num_vali, len(df_raw)]
-        border1 = border1s[self.set_type]
-        border2 = border2s[self.set_type]
+        borders = [(0, num_train), (num_train, num_train+num_vali), (len(df_raw)-num_test, len(df_raw))]
+        border1, border2 = borders[self.set_type]
 
         if self.set_type == 0:
             border2 = (border2 - self.seq_len) * self.percent // 100 + self.seq_len
@@ -268,8 +273,7 @@ class Dataset_Custom(Dataset):
             df_data = df_raw[['OT']]  # 단일 열만 사용
 
         if self.scale:
-            train_data = df_data[border1s[0]:border2s[0]]
-            self.scaler.fit(train_data.values)
+            self.scaler.fit(df_data.values[:borders[0][1]])
             data = self.scaler.transform(df_data.values)
         else:
             data = df_data.values
@@ -289,24 +293,43 @@ class Dataset_Custom(Dataset):
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
         self.data_stamp = data_stamp
+        if self.flag_exist:
+            self.interpolated_flags = self.interpolated_flags[border1:border2]
 
+        self.valid_indices = self._generate_valid_indices()
+
+    def _generate_valid_indices(self):
+            indices = []
+            total_len = len(self.data_x)
+            for i in range(total_len - self.seq_len - self.pred_len + 1):
+                pred_start = i + self.seq_len
+                pred_end = pred_start + self.pred_len
+                if self.flag_exist:
+                    pred_flags = self.interpolated_flags[pred_start:pred_end]
+                    if np.sum(pred_flags) > self.pred_len // 2:
+                        # 휴장일이 예측 구간의 절반 초과인 경우 제외
+                        continue
+                indices.append(i)
+            return indices
+    
     def __getitem__(self, index):
-        feat_id = index // self.tot_len
-        s_begin = index % self.tot_len
-
+        # feat_id = index // self.tot_len
+        # s_begin = index % self.tot_len
+        
+        s_begin = self.valid_indices[idx]
         s_end = s_begin + self.seq_len
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
-        seq_x = self.data_x[s_begin:s_end, feat_id:feat_id + 1]
-        seq_y = self.data_y[r_begin:r_end, feat_id:feat_id + 1]
+        seq_x = self.data_x[s_begin:s_end]
+        seq_y = self.data_y[r_begin:r_end]
         seq_x_mark = self.data_stamp[s_begin:s_end]
         seq_y_mark = self.data_stamp[r_begin:r_end]
 
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
-        return (len(self.data_x) - self.seq_len - self.pred_len + 1) * self.enc_in
-
+        return len(self.valid_indices)
+        
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
 
