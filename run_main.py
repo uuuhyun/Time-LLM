@@ -16,6 +16,8 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 import datetime
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from IPython.display import Image, display
 
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
@@ -268,81 +270,118 @@ for ii in range(args.itr):
         else:
             accelerator.print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
 
+def evaluate_and_plot(model, data_loader, data_set, args):
+    model.eval()
+    preds, trues, inputs = [], [], []
+
+    with torch.no_grad():
+        for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
+            batch_x = batch_x.float().to(accelerator.device)
+            batch_y = batch_y.float().to(accelerator.device)
+            batch_x_mark = batch_x_mark.float().to(accelerator.device)
+            batch_y_mark = batch_y_mark.float().to(accelerator.device)
+
+            dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float().to(accelerator.device)
+            dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1)
+
+            outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+            if isinstance(outputs, tuple):
+                outputs = outputs[0]
+
+            f_dim = -1 if args.features == 'MS' else 0
+            preds.append(outputs[:, -args.pred_len:, f_dim:].cpu().numpy())
+            trues.append(batch_y[:, -args.pred_len:, f_dim:].cpu().numpy())
+            inputs.append(batch_x[:, -args.seq_len:, f_dim:].cpu().numpy())
+
+    preds = np.concatenate(preds, axis=0)
+    trues = np.concatenate(trues, axis=0)
+    inputs = np.concatenate(inputs, axis=0)
+
+    # 역변환
+    preds = data_set.inverse_transform(preds.reshape(-1, preds.shape[-1])).reshape(preds.shape)
+    trues = data_set.inverse_transform(trues.reshape(-1, trues.shape[-1])).reshape(trues.shape)
+    inputs = data_set.inverse_transform(inputs.reshape(-1, inputs.shape[-1])).reshape(inputs.shape)
+
+    # 🎯 첫 번째 시계열만 시각화 및 출력
+    input_seq = inputs[0].squeeze()
+    true_seq = trues[0].squeeze()
+    pred_seq = preds[0].squeeze()
+
+    print("\n===== 📊 입력 시퀀스 (Input Sequence) =====")
+    print(input_seq)
+
+    print("\n===== ✅ 실제값 vs 예측값 (Ground Truth vs Prediction) =====")
+    df = pd.DataFrame({
+        'GroundTruth': true_seq,
+        'Prediction': pred_seq
+    })
+    print(df.to_string(index=False))
+
+    # ✅ 자연스럽게 연결된 시계열로 시각화
+    full_truth = np.concatenate([input_seq, true_seq])
+    full_pred = np.concatenate([input_seq, pred_seq])
+    x = np.arange(len(full_truth))
+    x_input = np.arange(len(input_seq))
+
+    plt.figure(figsize=(12, 4))
+    plt.plot(x_input, input_seq, label='input', color='blue', linestyle='dotted')
+    plt.plot(x, full_truth, label='ground truth', color='orange')
+    plt.plot(x, full_pred, label='prediction', color='green', linestyle='--')
+    plt.legend()
+    plt.grid()
+    plt.title("Input → Prediction / Ground Truth (Continuous Line)")
+    plt.tight_layout()
+    now = datetime.datetime.now()
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
+  
+    gdrive_dir = "/content/drive/MyDrive/TimeLLM_outputs"
+    os.makedirs(gdrive_dir, exist_ok=True)
+  
+    save_path = os.path.join(gdrive_dir, f"forecast_result_{timestamp}.png")
+    plt.savefig(save_path)
+    print(f"✅ 시각화 결과가 저장되었습니다 → {save_path}")
+    plt.show()
+    display(Image(filename=save_path))
+
+def evaluate_sliding(model, data_loader, data_set, args, device):
+    model.eval()
+    all_preds = []
+    all_trues = []
+
+    with torch.no_grad():
+        for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
+            batch_x = batch_x.float().to(device)
+            batch_y = batch_y.float().to(device)
+            batch_x_mark = batch_x_mark.float().to(device)
+            batch_y_mark = batch_y_mark.float().to(device)
+
+            dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float().to(device)
+            dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1)
+
+            outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+            outputs = outputs[:, -args.pred_len:, :]
+
+            all_preds.append(outputs.detach().cpu().numpy())
+            all_trues.append(batch_y[:, -args.pred_len:, :].detach().cpu().numpy())
+
+    preds = np.concatenate(all_preds, axis=0).squeeze()
+    trues = np.concatenate(all_trues, axis=0).squeeze()
+
+    if hasattr(data_set, 'inverse_transform'):
+        preds = data_set.inverse_transform(preds)
+        trues = data_set.inverse_transform(trues)
+
+    mse = mean_squared_error(trues, preds)
+    mae = mean_absolute_error(trues, preds)
+    print(f"✅ Sliding Window 기반 전체 예측 평가 결과:")
+    print(f"   - MSE: {mse:.4f}")
+    print(f"   - MAE: {mae:.4f}")
+
 accelerator.wait_for_everyone()
 if accelerator.is_local_main_process:
     path = './checkpoints'  # unique checkpoint saving path
     del_files(path)  # delete checkpoint files
     accelerator.print('success delete checkpoints')
-
-    def evaluate_and_plot(model, data_loader, data_set, args):
-      model.eval()
-      preds, trues, inputs = [], [], []
-  
-      with torch.no_grad():
-          for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
-              batch_x = batch_x.float().to(accelerator.device)
-              batch_y = batch_y.float().to(accelerator.device)
-              batch_x_mark = batch_x_mark.float().to(accelerator.device)
-              batch_y_mark = batch_y_mark.float().to(accelerator.device)
-  
-              dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float().to(accelerator.device)
-              dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1)
-  
-              outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-              if isinstance(outputs, tuple):
-                  outputs = outputs[0]
-  
-              f_dim = -1 if args.features == 'MS' else 0
-              preds.append(outputs[:, -args.pred_len:, f_dim:].cpu().numpy())
-              trues.append(batch_y[:, -args.pred_len:, f_dim:].cpu().numpy())
-              inputs.append(batch_x[:, -args.seq_len:, f_dim:].cpu().numpy())
-  
-      preds = np.concatenate(preds, axis=0)
-      trues = np.concatenate(trues, axis=0)
-      inputs = np.concatenate(inputs, axis=0)
-  
-      # 역변환
-      preds = data_set.inverse_transform(preds.reshape(-1, preds.shape[-1])).reshape(preds.shape)
-      trues = data_set.inverse_transform(trues.reshape(-1, trues.shape[-1])).reshape(trues.shape)
-      inputs = data_set.inverse_transform(inputs.reshape(-1, inputs.shape[-1])).reshape(inputs.shape)
-  
-      # 🎯 첫 번째 시계열만 시각화 및 출력
-      input_seq = inputs[0].squeeze()
-      true_seq = trues[0].squeeze()
-      pred_seq = preds[0].squeeze()
-  
-      print("\n===== 📊 입력 시퀀스 (Input Sequence) =====")
-      print(input_seq)
-  
-      print("\n===== ✅ 실제값 vs 예측값 (Ground Truth vs Prediction) =====")
-      df = pd.DataFrame({
-          'GroundTruth': true_seq,
-          'Prediction': pred_seq
-      })
-      print(df.to_string(index=False))
-  
-      # ✅ 자연스럽게 연결된 시계열로 시각화
-      full_truth = np.concatenate([input_seq, true_seq])
-      full_pred = np.concatenate([input_seq, pred_seq])
-      x = np.arange(len(full_truth))
-      x_input = np.arange(len(input_seq))
-  
-      plt.figure(figsize=(12, 4))
-      plt.plot(x_input, input_seq, label='input', color='blue', linestyle='dotted')
-      plt.plot(x, full_truth, label='ground truth', color='orange')
-      plt.plot(x, full_pred, label='prediction', color='green', linestyle='--')
-      plt.legend()
-      plt.grid()
-      plt.title("Input → Prediction / Ground Truth (Continuous Line)")
-      plt.tight_layout()
-      now = datetime.datetime.now()
-      timestamp = now.strftime("%Y%m%d_%H%M%S")
-      save_path = f"forecast_result_{timestamp}.png"
-      plt.savefig(save_path)
-      print(f"Saved at {save_path}")
-
     # 👇 반드시 test_data도 함께 전달
     evaluate_and_plot(model, test_loader, test_data, args)
-
-from IPython.display import Image, display
-display(Image(filename=save_path))
+    evaluate_sliding(model, test_loader, test_data, args, device)
