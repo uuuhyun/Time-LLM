@@ -246,16 +246,19 @@ class Dataset_Custom(Dataset):
         '''
         df_raw.columns: ['date', ...(other features), target feature]
         '''
+        # 1. interpolated_flag 존재 여부 확인 후 먼저 복사
+        self.flag_exist = 'interpolated_flag' in df_raw.columns
+        if self.flag_exist:
+            full_interpolated_flags = df_raw['interpolated_flag'].values
+
+        
         cols = list(df_raw.columns)
         cols.remove(self.target)
         cols.remove('date')
-        if 'interpolated_flag' in cols:
+        if self.flag_exist:
             cols.remove('interpolated_flag')
-        self.flag_exist = 'interpolated_flag' in df_raw.columns
         
         df_raw = df_raw[['date'] + cols + [self.target]]
-        if self.flag_exist:
-            self.interpolated_flags = df_raw['interpolated_flag'].values
             
         num_train = int(len(df_raw) * 0.7)
         num_test = int(len(df_raw) * 0.2)
@@ -294,7 +297,7 @@ class Dataset_Custom(Dataset):
         self.data_y = data[border1:border2]
         self.data_stamp = data_stamp
         if self.flag_exist:
-            self.interpolated_flags = self.interpolated_flags[border1:border2]
+            self.interpolated_flags = full_interpolated_flags[border1:border2]
 
         self.valid_indices = self._generate_valid_indices()
 
