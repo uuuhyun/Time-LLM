@@ -315,7 +315,7 @@ class Dataset_Custom(Dataset):
                 indices.append(i)
             return indices
     
-    def __getitem__(self, index):
+    def __getitem__(self, idx):
         # feat_id = index // self.tot_len
         # s_begin = index % self.tot_len
         
