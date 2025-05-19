@@ -343,9 +343,10 @@ for ii in range(args.itr):
 #     plt.show()
 #     display(Image(filename=save_path))
 
-def evaluate_sliding(model, data_loader, data_set, args, accelerator, num_plots=5):
+def evaluate_sliding(model, data_loader, data_set, args, accelerator):
     model.eval()
     all_preds, all_trues, all_inputs = [], [], []
+    t_start = time.time()
 
     with torch.no_grad():
         for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
@@ -364,24 +365,39 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator, num_plots=
             all_preds.append(outputs.detach().cpu().numpy())
             all_trues.append(batch_y[:, -args.pred_len:, :].detach().cpu().numpy())
 
-    inputs = np.concatenate(all_inputs, axis=0).squeeze()
-    preds = np.concatenate(all_preds, axis=0).squeeze()
-    trues = np.concatenate(all_trues, axis=0).squeeze()
+    # raw predictions
+    raw_inputs = np.concatenate(all_inputs, axis=0).squeeze()
+    raw_preds = np.concatenate(all_preds, axis=0).squeeze()
+    raw_trues = np.concatenate(all_trues, axis=0).squeeze()
 
+    # raw MSE/MAE
+    raw_mse = mean_squared_error(raw_trues, raw_preds)
+    raw_mae = mean_absolute_error(raw_trues, raw_preds)
+
+    # inverse transform if applicable
     if hasattr(data_set, 'inverse_transform'):
-        inputs = data_set.inverse_transform(inputs)
-        preds = data_set.inverse_transform(preds)
-        trues = data_set.inverse_transform(trues)
+        inputs = data_set.inverse_transform(raw_inputs)
+        preds = data_set.inverse_transform(raw_preds)
+        trues = data_set.inverse_transform(raw_trues)
+    else:
+        inputs, preds, trues = raw_inputs, raw_preds, raw_trues
 
-    mse = mean_squared_error(trues, preds)
-    mae = mean_absolute_error(trues, preds)
+    # inverse MSE/MAE
+    inv_mse = mean_squared_error(trues, preds)
+    inv_mae = mean_absolute_error(trues, preds)
+
+    # 출력
     print(f"\n✅ Sliding Window 기반 전체 예측 평가 결과:")
-    print(f"   - MSE: {mse:.4f}")
-    print(f"   - MAE: {mae:.4f}")
+    print(f"   - (역변환 전) MSE: {raw_mse:.4f} / MAE: {raw_mae:.4f}")
+    print(f"   - (역변환 후) MSE: {inv_mse:.4f} / MAE: {inv_mae:.4f}")
 
-    # 시각화
-    plt.figure(figsize=(12, num_plots * 3))
-    for i in range(min(num_plots, len(inputs))):
+    # 저장 디렉토리
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join("/content/drive/MyDrive/TimeLLM_outputs", timestamp)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 슬라이드별 시각화 저장
+    for i in range(len(inputs)):
         input_seq = inputs[i]
         pred_seq = preds[i]
         true_seq = trues[i]
@@ -391,24 +407,37 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator, num_plots=
         x = np.arange(len(full_truth))
         x_input = np.arange(len(input_seq))
 
-        plt.subplot(num_plots, 1, i + 1)
+        plt.figure(figsize=(10, 3))
         plt.plot(x_input, input_seq, label='Input', color='blue', linestyle='dotted')
         plt.plot(x, full_truth, label='Ground Truth', color='orange')
         plt.plot(x, full_pred, label='Prediction', color='green', linestyle='--')
+        plt.title(f"📈 Sliding Window #{i+1}")
         plt.grid(True)
-        plt.title(f"📈 Sliding Window #{i+1}: Input → Prediction vs Ground Truth")
-        if i == 0:
-            plt.legend(loc='upper right')
+        plt.legend(loc='upper right')
+        plt.tight_layout()
 
-    plt.tight_layout()
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    gdrive_dir = "/content/drive/MyDrive/TimeLLM_outputs"
-    os.makedirs(gdrive_dir, exist_ok=True)
-    save_path = os.path.join(gdrive_dir, f"sliding_eval_multi_{timestamp}.png")
-    plt.savefig(save_path)
-    print(f"✅ 여러 슬라이딩 예측 결과 시각화 완료 → {save_path}")
-    plt.show()
-    display(Image(filename=save_path))
+        save_path = os.path.join(output_dir, f"sliding_window_{i+1}.png")
+        plt.savefig(save_path)
+        plt.close()
+
+    # metrics.txt 저장
+    t_end = time.time()
+    elapsed = t_end - t_start
+    metrics_path = os.path.join(output_dir, "metrics.txt")
+    with open(metrics_path, "w") as f:
+        f.write("📊 Sliding Window Evaluation Summary\n")
+        f.write(f"- Timestamp: {timestamp}\n")
+        f.write(f"- Total Windows: {len(inputs)}\n")
+        f.write(f"- Elapsed Time: {elapsed:.2f} sec\n\n")
+        f.write("▶ Raw (before inverse_transform)\n")
+        f.write(f"- MSE: {raw_mse:.6f}\n")
+        f.write(f"- MAE: {raw_mae:.6f}\n\n")
+        f.write("▶ Inverse Transformed\n")
+        f.write(f"- MSE: {inv_mse:.6f}\n")
+        f.write(f"- MAE: {inv_mae:.6f}\n")
+
+    print(f"\n✅ 총 {len(inputs)}개의 슬라이드 이미지와 metrics.txt 로그가 저장되었습니다 → {output_dir}")
+
 
 accelerator.wait_for_everyone()
 if accelerator.is_local_main_process:
@@ -417,5 +446,4 @@ if accelerator.is_local_main_process:
     accelerator.print('success delete checkpoints')
     # 👇 반드시 test_data도 함께 전달
     # evaluate_and_plot(model, test_loader, test_data, args)
-    evaluate_sliding(model, test_loader, test_data, args, accelerator, num_plots=5)
-
+    evaluate_sliding(model, test_loader, test_data, args, accelerator)
