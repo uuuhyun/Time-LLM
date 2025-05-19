@@ -370,11 +370,10 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator):
     raw_preds = np.concatenate(all_preds, axis=0).squeeze()
     raw_trues = np.concatenate(all_trues, axis=0).squeeze()
 
-    # raw MSE/MAE
     raw_mse = mean_squared_error(raw_trues, raw_preds)
     raw_mae = mean_absolute_error(raw_trues, raw_preds)
 
-    # inverse transform if applicable
+    # inverse transform
     if hasattr(data_set, 'inverse_transform'):
         inputs = data_set.inverse_transform(raw_inputs)
         preds = data_set.inverse_transform(raw_preds)
@@ -382,7 +381,6 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator):
     else:
         inputs, preds, trues = raw_inputs, raw_preds, raw_trues
 
-    # inverse MSE/MAE
     inv_mse = mean_squared_error(trues, preds)
     inv_mae = mean_absolute_error(trues, preds)
 
@@ -396,7 +394,9 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator):
     output_dir = os.path.join("/content/drive/MyDrive/TimeLLM_outputs", timestamp)
     os.makedirs(output_dir, exist_ok=True)
 
-    # 슬라이드별 시각화 저장
+    # 슬라이드별 평가 결과 저장용
+    slide_metrics = []
+
     for i in range(len(inputs)):
         input_seq = inputs[i]
         pred_seq = preds[i]
@@ -407,6 +407,7 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator):
         x = np.arange(len(full_truth))
         x_input = np.arange(len(input_seq))
 
+        # 시각화 저장
         plt.figure(figsize=(10, 3))
         plt.plot(x_input, input_seq, label='Input', color='blue', linestyle='dotted')
         plt.plot(x, full_truth, label='Ground Truth', color='orange')
@@ -415,14 +416,20 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator):
         plt.grid(True)
         plt.legend(loc='upper right')
         plt.tight_layout()
-
-        save_path = os.path.join(output_dir, f"sliding_window_{i+1}.png")
-        plt.savefig(save_path)
+        plt.savefig(os.path.join(output_dir, f"sliding_window_{i+1}.png"))
         plt.close()
 
+        # 슬라이드별 MSE/MAE 저장
+        mse_slide = mean_squared_error(true_seq, pred_seq)
+        mae_slide = mean_absolute_error(true_seq, pred_seq)
+        slide_metrics.append({"window": i+1, "mse": mse_slide, "mae": mae_slide})
+
+    # slide_metrics.csv 저장
+    df = pd.DataFrame(slide_metrics)
+    df.to_csv(os.path.join(output_dir, "slide_metrics.csv"), index=False)
+
     # metrics.txt 저장
-    t_end = time.time()
-    elapsed = t_end - t_start
+    elapsed = time.time() - t_start
     metrics_path = os.path.join(output_dir, "metrics.txt")
     with open(metrics_path, "w") as f:
         f.write("📊 Sliding Window Evaluation Summary\n")
@@ -436,8 +443,7 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator):
         f.write(f"- MSE: {inv_mse:.6f}\n")
         f.write(f"- MAE: {inv_mae:.6f}\n")
 
-    print(f"\n✅ 총 {len(inputs)}개의 슬라이드 이미지와 metrics.txt 로그가 저장되었습니다 → {output_dir}")
-
+    print(f"\n✅ {len(inputs)}개 슬라이드 이미지, slide_metrics.csv, metrics.txt 저장 완료 → {output_dir}")
 
 accelerator.wait_for_everyone()
 if accelerator.is_local_main_process:
