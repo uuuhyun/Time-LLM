@@ -302,32 +302,57 @@ class Dataset_Custom(Dataset):
         self.valid_indices = self._generate_valid_indices()
 
     def _generate_valid_indices(self):
-            indices = []
-            total_len = len(self.data_x)
-            for i in range(total_len - self.seq_len - self.pred_len + 1):
-                pred_start = i + self.seq_len
-                pred_end = pred_start + self.pred_len
+        indices = []
+        pred_target_indices = []
+        total_len = len(self.data_x)
+        for i in range(total_len - self.seq_len - 1):  # pred_len 고정 길이 생략
+    
+            seq_start = i
+            seq_end = seq_start + self.seq_len
+    
+            pred_start = seq_end
+            pred_index = pred_start
+            real_day_count = 0
+            pred_indices = []
+    
+            while pred_index < total_len and real_day_count < self.pred_len:
+                is_real_day = True
                 if self.flag_exist:
-                    pred_flags = self.interpolated_flags[pred_start:pred_end]
-                    if np.sum(pred_flags) > self.pred_len // 2:
-                        # 휴장일이 예측 구간의 절반 초과인 경우 제외
-                        continue
-                indices.append(i)
-            return indices
+                    if self.set_type == 2:  # test set만 보간 제외
+                        if self.interpolated_flags[pred_index] == 1:
+                            is_real_day = False
+                if is_real_day:
+                    pred_indices.append(pred_index)
+                    real_day_count += 1
+                pred_index += 1
+    
+            if real_day_count < self.pred_len:
+                continue  # 유효하지 않은 구간
+    
+            indices.append(i)
+            pred_target_indices.append(pred_indices)
+    
+        self.valid_pred_indices = pred_target_indices
+        return indices
+
     
     def __getitem__(self, idx):
-        # feat_id = index // self.tot_len
-        # s_begin = index % self.tot_len
-        
         s_begin = self.valid_indices[idx]
         s_end = s_begin + self.seq_len
         r_begin = s_end - self.label_len
-        r_end = r_begin + self.label_len + self.pred_len
+        r_end = s_end  # 예측 구간은 별도 처리하므로 여기선 label_len까지만
+    
         seq_x = self.data_x[s_begin:s_end]
-        seq_y = self.data_y[r_begin:r_end]
         seq_x_mark = self.data_stamp[s_begin:s_end]
-        seq_y_mark = self.data_stamp[r_begin:r_end]
-
+    
+        seq_y_label = self.data_y[r_begin:r_end]  # decoder input용
+        seq_y_pred = self.data_y[self.valid_pred_indices[idx]]  # 진짜 예측 대상
+        seq_y = np.concatenate([seq_y_label, seq_y_pred], axis=0)
+    
+        seq_y_mark_label = self.data_stamp[r_begin:r_end]
+        seq_y_mark_pred = self.data_stamp[self.valid_pred_indices[idx]]
+        seq_y_mark = np.concatenate([seq_y_mark_label, seq_y_mark_pred], axis=0)
+    
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
