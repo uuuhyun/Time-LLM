@@ -270,79 +270,6 @@ for ii in range(args.itr):
         else:
             accelerator.print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
 
-# def evaluate_and_plot(model, data_loader, data_set, args):
-#     model.eval()
-#     preds, trues, inputs = [], [], []
-
-#     with torch.no_grad():
-#         for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
-#             batch_x = batch_x.float().to(accelerator.device)
-#             batch_y = batch_y.float().to(accelerator.device)
-#             batch_x_mark = batch_x_mark.float().to(accelerator.device)
-#             batch_y_mark = batch_y_mark.float().to(accelerator.device)
-
-#             dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float().to(accelerator.device)
-#             dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1)
-
-#             outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-#             if isinstance(outputs, tuple):
-#                 outputs = outputs[0]
-
-#             f_dim = -1 if args.features == 'MS' else 0
-#             preds.append(outputs[:, -args.pred_len:, f_dim:].cpu().numpy())
-#             trues.append(batch_y[:, -args.pred_len:, f_dim:].cpu().numpy())
-#             inputs.append(batch_x[:, -args.seq_len:, f_dim:].cpu().numpy())
-
-#     preds = np.concatenate(preds, axis=0)
-#     trues = np.concatenate(trues, axis=0)
-#     inputs = np.concatenate(inputs, axis=0)
-
-#     # 역변환
-#     preds = data_set.inverse_transform(preds.reshape(-1, preds.shape[-1])).reshape(preds.shape)
-#     trues = data_set.inverse_transform(trues.reshape(-1, trues.shape[-1])).reshape(trues.shape)
-#     inputs = data_set.inverse_transform(inputs.reshape(-1, inputs.shape[-1])).reshape(inputs.shape)
-
-#     # 🎯 첫 번째 시계열만 시각화 및 출력
-#     input_seq = inputs[0].squeeze()
-#     true_seq = trues[0].squeeze()
-#     pred_seq = preds[0].squeeze()
-
-#     print("\n===== 📊 입력 시퀀스 (Input Sequence) =====")
-#     print(input_seq)
-
-#     print("\n===== ✅ 실제값 vs 예측값 (Ground Truth vs Prediction) =====")
-#     df = pd.DataFrame({
-#         'GroundTruth': true_seq,
-#         'Prediction': pred_seq
-#     })
-#     print(df.to_string(index=False))
-
-#     # ✅ 자연스럽게 연결된 시계열로 시각화
-#     full_truth = np.concatenate([input_seq, true_seq])
-#     full_pred = np.concatenate([input_seq, pred_seq])
-#     x = np.arange(len(full_truth))
-#     x_input = np.arange(len(input_seq))
-
-#     plt.figure(figsize=(12, 4))
-#     plt.plot(x_input, input_seq, label='input', color='blue', linestyle='dotted')
-#     plt.plot(x, full_truth, label='ground truth', color='orange')
-#     plt.plot(x, full_pred, label='prediction', color='green', linestyle='--')
-#     plt.legend()
-#     plt.grid()
-#     plt.title("Input → Prediction / Ground Truth (Continuous Line)")
-#     plt.tight_layout()
-#     now = datetime.datetime.now()
-#     timestamp = now.strftime("%Y%m%d_%H%M%S")
-  
-#     gdrive_dir = "/content/drive/MyDrive/TimeLLM_outputs"
-#     os.makedirs(gdrive_dir, exist_ok=True)
-  
-#     save_path = os.path.join(gdrive_dir, f"forecast_result_{timestamp}.png")
-#     plt.savefig(save_path)
-#     print(f"✅ 시각화 결과가 저장되었습니다 → {save_path}")
-#     plt.show()
-#     display(Image(filename=save_path))
-
 def evaluate_sliding(model, data_loader, data_set, args, accelerator):
     model.eval()
     all_preds, all_trues, all_inputs = [], [], []
@@ -414,7 +341,7 @@ def evaluate_sliding(model, data_loader, data_set, args, accelerator):
         plt.plot(x, full_pred, label='Prediction', color='green', linestyle='--')
         plt.title(f"📈 Sliding Window #{i+1}")
         plt.grid(True)
-        plt.legend(loc='upper right')
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, f"sliding_window_{i+1}.png"))
         plt.close()
