@@ -132,6 +132,13 @@ for ii in range(args.itr):
     vali_data, vali_loader = data_provider(args, 'val')
     test_data, test_loader = data_provider(args, 'test')
 
+    # 슬라이딩 윈도우 개수 출력
+    if hasattr(train_data, 'valid_indices'):
+        print(f"\n✅ Sliding Window 개수 요약")
+        print(f"- Train: {len(train_data.valid_indices)}개")
+        print(f"- Val:   {len(vali_data.valid_indices)}개")
+        print(f"- Test:  {len(test_data.valid_indices)}개")
+
     args.content = load_content(args)
 
     if args.model == 'Autoformer':
