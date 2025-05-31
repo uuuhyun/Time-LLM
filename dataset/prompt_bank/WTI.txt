@@ -1,1 +1,1 @@
-This dataset represents 11 years of daily WTI crude oil prices.
+This dataset contains 11 years of daily WTI crude oil prices aligned to business days. Weekends and holidays are forward-filled using the last observed value during training. Forecasting is performed only for actual trading days. A sliding window approach is used to model short-term temporal patterns and local trends.
