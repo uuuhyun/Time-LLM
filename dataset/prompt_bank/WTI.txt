@@ -1,1 +1,1 @@
-This dataset contains 11 years of daily WTI crude oil prices. It is aligned to business days with forward-filling for weekends and holidays. Seasonal demand affects prices, including higher heating oil use in winter and gasoline in summer. A sliding window approach captures short-term patterns.
+This dataset contains 11 years of daily WTI crude oil prices aligned to business days. Seasonal demand causes price shifts, such as winter heating oil and summer gasoline. Sliding windows are used to model short-term patterns.
